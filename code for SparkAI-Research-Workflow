@@ -1,0 +1,145 @@
+from sparkai.llm.llm import ChatSparkLLM, ChunkPrintHandler
+from sparkai.core.messages import ChatMessage
+from langchain_community.tools import DuckDuckGoSearchRun
+from rich.progress import track
+from rich import print
+from rich.panel import Panel
+from rich.console import Console
+import os
+import requests
+
+# 星火认知大模型配置
+SPARKAI_URL = "wss://spark-api.xf-yun.com/v1.1/chat"
+SPARKAI_APP_ID = "你的 App ID"
+SPARKAI_API_SECRET = "你的 API Secret"
+SPARKAI_API_KEY = "你的 API Key"
+SPARKAI_DOMAIN = "general"
+
+# 初始化星火大模型、DuckDuckGo 搜索和 Rich Console
+spark = ChatSparkLLM(
+    spark_api_url=SPARKAI_URL,
+    spark_app_id=SPARKAI_APP_ID,
+    spark_api_key=SPARKAI_API_KEY,
+    spark_api_secret=SPARKAI_API_SECRET,
+    spark_llm_domain=SPARKAI_DOMAIN,
+    streaming=False,
+)
+search = DuckDuckGoSearchRun()
+console = Console()
+
+
+def generate_mind_map(topic):
+    """使用星火大模型生成思维导图"""
+    print(f"[bold blue]正在生成关于 '{topic}' 的思维导图...")
+    messages = [
+        ChatMessage(
+            role="user",
+            content=f"请帮我生成一个关于 {topic} 的详细研究思维导图，以markdown格式输出，并确保逻辑清晰、层次分明，包括主要论点及其子论点。",
+        )
+    ]
+    handler = ChunkPrintHandler()
+    response = spark.generate([messages], callbacks=[handler])
+    return response.generations[0][0].text
+
+
+def search_and_summarize(query, search_filename, summary_filename):
+    """使用 DuckDuckGo 搜索并用星火大模型总结，并将结果分类写入文件"""
+    try:
+        with open(search_filename, "a", encoding="utf-8") as search_file, \
+                open(summary_filename, "a", encoding="utf-8") as summary_file:
+
+            # 搜索结果可视化和保存
+            console.print(f"[bold blue]正在搜索 '{query}'...")
+            search_results = search.invoke(query)
+            console.print(Panel(search_results, title="搜索结果", expand=False))
+            print(f"[bold blue]正在搜索 '{query}'...\n", file=search_file)
+            print(Panel(search_results, title="搜索结果", expand=False), file=search_file)
+
+            # 总结过程可视化和保存
+            console.print(f"[bold blue]正在总结 '{query}'...")
+            messages = [
+                ChatMessage(
+                    role="user",
+                    content=f"请对以下搜索结果进行总结，提取关键信息，并确保总结内容简练且信息全面：\n\n{search_results}",
+                )
+            ]
+            handler = ChunkPrintHandler()
+            response = spark.generate([messages], callbacks=[handler])
+            summary = response.generations[0][0].text
+            print(f"**总结:** {summary}\n", file=summary_file)
+
+            return summary
+    except requests.exceptions.RequestException as e:
+        console.print(f"[bold red]网络错误: {e}")
+        return None
+    except Exception as e:
+        console.print(f"[bold red]发生错误: {e}")
+        return None
+
+
+def print_results(mind_map, summaries, research_result_filename):
+    """按思维导图结构输出总结结果和链接，并保存到文件"""
+    result_str = "[bold green]\n## 研究结果："
+    j = 0
+    for line in mind_map.split("\n"):
+        if line.startswith("#") or line.startswith("##") or line.startswith("- "):
+            result_str += line + "\n"
+        if line.startswith("- "):
+            if j < len(summaries):
+                result_str += f"**总结:** {summaries[j]}\n"
+            else:
+                result_str += f"**总结:**  [bold red]此分支没有可用的摘要。[/]\n"
+            j += 1
+
+    print(result_str)
+
+    with open(research_result_filename, "w", encoding="utf-8") as f:
+        f.write(result_str)
+
+    return result_str
+
+
+def summarize_research_results(research_results, research_result_summary_filename):
+    """使用大模型对研究结果进行重新排版、整理、润色，并保存到文件"""
+    console.print(f"[bold blue]正在总结研究结果...")
+    messages = [
+        ChatMessage(
+            role="user",
+            content=f"请对以下研究结果进行重新排版、整理、润色，并以有条理的方式复述：\n\n{research_results}",
+        )
+    ]
+    handler = ChunkPrintHandler()
+    response = spark.generate([messages], callbacks=[handler])
+    summary = response.generations[0][0].text
+
+    with open(research_result_summary_filename, "w", encoding="utf-8") as f:
+        f.write(summary)
+
+    return summary
+
+
+if __name__ == "__main__":
+    research_topic = input("请输入您要研究的主题: ")
+    mind_map = generate_mind_map(research_topic)
+    print(f"\n[bold green]## 思维导图：\n{mind_map}")
+
+    summaries = []
+    branches = [line[2:].strip() for line in mind_map.split("\n") if line.startswith("- ")]
+
+    if not os.path.exists("outputs"):
+        os.makedirs("outputs")
+
+    search_filename = os.path.join("outputs", f"{research_topic}搜索内容.txt")
+    summary_filename = os.path.join("outputs", f"{research_topic}内容总结.txt")
+    research_result_filename = os.path.join("outputs", f"{research_topic}研究结果.txt")
+    research_result_summary_filename = os.path.join("outputs", f"{research_topic}研究结果总结.txt")
+
+    for branch in track(branches, description="处理中..."):
+        summary = search_and_summarize(branch, search_filename, summary_filename)
+        if summary is not None:
+            summaries.append(summary)
+
+    research_results = print_results(mind_map, summaries, research_result_filename)
+    summarize_research_results(research_results, research_result_summary_filename)
+
+    print(f"[bold green]所有结果已保存到 outputs 文件夹中。")
