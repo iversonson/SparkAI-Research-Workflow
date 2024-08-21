@@ -19,3 +19,10 @@ Example README.md Section (Installation):
 1. **Install required libraries:**
    ```bash
    pip install sparkai langchain_community rich requests
+
+Replace Placeholders:
+Replace "你的 App ID", "你的 API Secret", and "你的 API Key" with your actual Spark AI credentials.
+
+By following these guidelines, you can create a well-organized and informative GitHub repository that effectively showcases your research automation project. Remember to tailor the information to your specific project and audience.
+
+If you have any more questions or need further assistance, feel free to ask!
