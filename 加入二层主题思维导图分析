@@ -7,9 +7,9 @@ from sparkai.errors import SparkAIConnectionError
 
 # 星火认知大模型配置
 SPARKAI_URL = 'wss://spark-api.xf-yun.com/v1.1/chat'
-SPARKAI_APP_ID = 'c1545b50'  # 替换为你的 App ID
-SPARKAI_API_SECRET = 'NzM5ODhmODU4YzUxNzAwMDAyYzA3MDBk'  # 替换为你的 API Secret
-SPARKAI_API_KEY = 'ae4c1335ef528a4a5bbf75a6b4bb3d7b'  # 替换为你的 API Key
+SPARKAI_APP_ID = ''  # 替换为你的 App ID
+SPARKAI_API_SECRET = ''  # 替换为你的 API Secret
+SPARKAI_API_KEY = ''  # 替换为你的 API Key
 SPARKAI_DOMAIN = 'general'
 
 # 初始化星火大模型和 DuckDuckGo 搜索
