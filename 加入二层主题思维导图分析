@@ -1,0 +1,146 @@
+import os
+import re
+from sparkai.llm.llm import ChatSparkLLM, ChunkPrintHandler
+from sparkai.core.messages import ChatMessage
+from langchain_community.tools import DuckDuckGoSearchRun
+from sparkai.errors import SparkAIConnectionError
+
+# 星火认知大模型配置
+SPARKAI_URL = 'wss://spark-api.xf-yun.com/v1.1/chat'
+SPARKAI_APP_ID = 'c1545b50'  # 替换为你的 App ID
+SPARKAI_API_SECRET = 'NzM5ODhmODU4YzUxNzAwMDAyYzA3MDBk'  # 替换为你的 API Secret
+SPARKAI_API_KEY = 'ae4c1335ef528a4a5bbf75a6b4bb3d7b'  # 替换为你的 API Key
+SPARKAI_DOMAIN = 'general'
+
+# 初始化星火大模型和 DuckDuckGo 搜索
+spark = ChatSparkLLM(
+    spark_api_url=SPARKAI_URL,
+    spark_app_id=SPARKAI_APP_ID,
+    spark_api_key=SPARKAI_API_KEY,
+    spark_api_secret=SPARKAI_API_SECRET,
+    spark_llm_domain=SPARKAI_DOMAIN,
+    streaming=False,
+)
+search = DuckDuckGoSearchRun()
+
+def generate_mind_map(topic):
+    """使用星火大模型生成思维导图"""
+    print(f"正在生成关于 {topic} 的思维导图...")
+    messages = [
+        ChatMessage(
+            role="user",
+            content=f"我要深入研究{topic}，请不用作任何回答，直接给我列出哪10个方面我需要重点搜索的内容",
+        )
+    ]
+    handler = ChunkPrintHandler()
+    response = spark.generate([messages], callbacks=[handler])
+    mind_map = response.generations[0][0].text
+    print(f"思维导图已生成:\n{mind_map}")
+    return mind_map
+
+def search_and_summarize(query):
+    """使用 DuckDuckGo 搜索并用星火大模型总结"""
+    print(f"正在搜索和总结关于 {query} 的信息...")
+    search_results = search.invoke(query)
+    messages = [
+        ChatMessage(
+            role="user",
+            content=f"请对以下搜索结果进行总结，提取关键信息，并确保总结内容简练且信息全面：\n\n{search_results}",
+        )
+    ]
+    handler = ChunkPrintHandler()
+    try:
+        response = spark.generate([messages], callbacks=[handler])
+        try:
+            summary = response.generations[0][0].text
+            print(f"总结已完成:\n{summary}")
+            return summary
+        except IndexError:
+            print(f"尝试分段总结 {query} ...")
+            # 尝试分段总结
+            summary_parts = []
+            for generation in response.generations:
+                for message in generation:
+                    summary_parts.append(message.text)
+            summary = "\n".join(summary_parts)
+            if summary:
+                print(f"分段总结已完成:\n{summary}")
+                return summary
+            else:
+                print(f"无法总结 {query}，跳过...")
+                return None
+    except SparkAIConnectionError as e:
+        if "Error Code: 10013" in str(e):
+            print(f"跳过 {query} 的搜索和总结，原因: {e}")
+            return None  # 返回 None 表示跳过
+        else:
+            raise e  # 其他错误继续抛出
+
+def research_subtopic(subtopic):
+    """对子主题进行研究"""
+    print(f"开始研究子主题：{subtopic}")
+    subtopic_mind_map = generate_mind_map(subtopic)
+    subtopic_summaries = []
+    for i, line in enumerate(subtopic_mind_map.split("\n")):
+        if re.match(r"^\d+\.", line):
+            branch = line.strip()
+            summary = search_and_summarize(branch)
+            subtopic_summaries.append(summary)
+    return subtopic_mind_map, subtopic_summaries
+
+def print_results(mind_map, summaries):
+    """按思维导图结构输出总结结果和链接"""
+    print("## 研究结果：")
+    for i, line in enumerate(mind_map.split("\n")):
+        if line.startswith("#") or line.startswith("##") or line.startswith("- "):
+            print(line)
+        if line.startswith("- "):
+            if summaries[i]:  # 判断 summary 是否为 None
+                print(f"  {summaries[i]}")  # 去掉 "**总结:** "
+            else:
+                print(f"  跳过该项，原因：内容不符合规范")
+
+if __name__ == "__main__":
+    research_topic = input("请输入您要研究的主题: ")
+    mind_map_file = research_topic + ".txt"
+    search_results_dir = research_topic + "_搜索结果"
+
+    # 创建搜索结果保存目录
+    os.makedirs(search_results_dir, exist_ok=True)
+
+    # 生成思维导图并保存到文件
+    mind_map = generate_mind_map(research_topic)
+    with open(mind_map_file, "w", encoding="utf-8") as f:
+        f.write(mind_map)
+
+    # 从思维导图中提取信息并进行搜索和总结
+    summaries = []
+    for i, line in enumerate(mind_map.split("\n")):
+        if re.match(r"^\d+\.", line):
+            branch = line.strip()
+
+            # 搜索和总结
+            summary = search_and_summarize(branch)
+            summaries.append(summary)
+
+            # 保存搜索结果到文件
+            if summary:  # 判断 summary 是否为 None
+                search_result_file = os.path.join(search_results_dir, f"{branch} 搜索内容.txt")
+                with open(search_result_file, "w", encoding="utf-8") as f:
+                    f.write(summary)
+
+            # 对子主题进行研究
+            subtopic_mind_map, subtopic_summaries = research_subtopic(branch)
+
+            # 实时更新思维导图文件
+            with open(mind_map_file, "a", encoding="utf-8") as f:
+                if summary:
+                    f.write(f"\n- {branch}\n  {summary}")  # 去掉 "**总结:** "
+                    f.write(f"\n  ## 子主题研究：{branch}\n  {subtopic_mind_map}")
+                    for sub_summary in subtopic_summaries:
+                        if sub_summary:
+                            f.write(f"\n    - {sub_summary}")
+                else:
+                    f.write(f"\n- {branch}\n  跳过该项，原因：内容不符合规范")
+
+    print_results(mind_map, summaries)
